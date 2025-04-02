@@ -13,7 +13,7 @@ conn = psycopg2.connect(
     port=st.secrets["DB_PORT"]
 )
 
-# --- Utility Functions ---
+# Utility Functions
 def get_forecast(region, metric, conn):
     if metric == "avg_order_value":
         query = """
@@ -75,7 +75,7 @@ def get_history(region, metric, conn, category, segment, hour):
     df["type"] = "Historical"
     return df
 
-# --- Sidebar Controls ---
+# Sidebar Controls
 st.sidebar.header("📊 Filters")
 region = st.sidebar.selectbox("Select Region", ['Northeast', 'Midwest', 'South', 'West'])
 metric = st.sidebar.radio("Metric", ['total_orders', 'total_revenue', 'avg_order_value'])
@@ -92,7 +92,7 @@ selected_category = st.sidebar.selectbox("Product Category", ["All"] + categorie
 selected_segment = st.sidebar.selectbox("User Segment", ["All"] + segments)
 selected_hour = st.sidebar.selectbox("Hour of Day", ["All"] + [str(h) for h in hours])
 
-# --- Data Retrieval and Visualization ---
+# Data Retrieval and Visualization
 df_forecast = get_forecast(region, metric, conn)
 df_history = get_history(region, metric, conn, selected_category, selected_segment, selected_hour)
 df_combined = pd.concat([df_forecast, df_history])
@@ -119,11 +119,11 @@ promo_overlay = alt.Chart(pd.DataFrame({'promo_date': promo_dates})).mark_rule(
 st.title("📈 Forecast Dashboard")
 st.altair_chart(chart + promo_overlay, use_container_width=True)
 
-# --- Forecast Table ---
+# Forecast Table
 st.subheader("📋 Forecast Data Table")
 st.dataframe(df_forecast, use_container_width=True)
 
-# --- Download CSV Button ---
+# Download CSV Button
 st.download_button(
     label="Download CSV",
     data=df_combined.to_csv(index=False),

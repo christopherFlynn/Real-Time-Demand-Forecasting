@@ -21,3 +21,4 @@ logs/
 Thumbs.db
 
 # Firebase credentials (if using Firebase Admin SDK)
+.streamlit/secrets.toml

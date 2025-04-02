@@ -2,10 +2,10 @@
 import os
 import psycopg2
 from dotenv import load_dotenv
-from datetime import datetime
 
 load_dotenv()
 
+# Connect to DB
 conn = psycopg2.connect(
     dbname=os.getenv("DB_NAME"),
     user=os.getenv("DB_USER"),
@@ -15,10 +15,8 @@ conn = psycopg2.connect(
 )
 cursor = conn.cursor()
 
-today = datetime.utcnow().date()
-is_promo = today.day == 10
+print("📊 Aggregating daily metrics for all historical data...")
 
-# Aggregate daily metrics from orders
 cursor.execute("""
     INSERT INTO daily_metrics (
         date, region, total_orders, total_revenue, avg_order_value, is_promo_day
@@ -29,9 +27,8 @@ cursor.execute("""
         COUNT(*) AS total_orders,
         SUM(total_price) AS total_revenue,
         AVG(total_price) AS avg_order_value,
-        %s AS is_promo_day
+        CASE WHEN EXTRACT(DAY FROM DATE(timestamp)) = 10 THEN TRUE ELSE FALSE END AS is_promo_day
     FROM orders
-    WHERE DATE(timestamp) = %s
     GROUP BY DATE(timestamp), region
     ON CONFLICT (date, region) DO UPDATE
     SET
@@ -39,11 +36,10 @@ cursor.execute("""
         total_revenue = EXCLUDED.total_revenue,
         avg_order_value = EXCLUDED.avg_order_value,
         is_promo_day = EXCLUDED.is_promo_day;
-""", (is_promo, today))
-
+""")
 
 conn.commit()
 cursor.close()
 conn.close()
 
-print("✅ Daily metrics aggregated.")
+print("✅ Daily metrics aggregation complete.")

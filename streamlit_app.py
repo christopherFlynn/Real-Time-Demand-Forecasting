@@ -1,27 +1,23 @@
 import os
-import psycopg2
 import pandas as pd
 import altair as alt
 import streamlit as st
+from sqlalchemy import text
 
-# Connect to DB
-conn = psycopg2.connect(
-    dbname=st.secrets["DB_NAME"],
-    user=st.secrets["DB_USER"],
-    password=st.secrets["DB_PASSWORD"],
-    host=st.secrets["DB_HOST"],
-    port=st.secrets["DB_PORT"]
-)
+# Connect to Supabase using Streamlit's native SQL connection
+conn = st.connection("supabase_db", type="sql")
 
-# Utility Functions
-def get_forecast(region, metric, conn):
+# Fetch forecasted metrics for a selected region and metric
+# If AOV is selected, derive it from forecasted revenue and orders
+
+def get_forecast(region, metric):
     if metric == "avg_order_value":
         query = """
         SELECT region, metric, forecast_date, forecast_value
         FROM forecast_metrics
-        WHERE region = %s AND metric IN ('total_orders', 'total_revenue')
+        WHERE region = :region AND metric IN ('total_orders', 'total_revenue')
         """
-        df_raw = pd.read_sql(query, conn, params=(region,))
+        df_raw = pd.read_sql(text(query), conn.session, params={"region": region})
         df_pivot = df_raw.pivot(index="forecast_date", columns="metric", values="forecast_value")
         df_pivot = df_pivot.dropna()
         df_pivot["forecast_value"] = df_pivot["total_revenue"] / df_pivot["total_orders"]
@@ -32,12 +28,14 @@ def get_forecast(region, metric, conn):
         query = """
         SELECT forecast_date, forecast_value, 'Forecast' AS type
         FROM forecast_metrics
-        WHERE region = %s AND metric = %s
+        WHERE region = :region AND metric = :metric
         ORDER BY forecast_date
         """
-        return pd.read_sql(query, conn, params=(region, metric))
+        return pd.read_sql(text(query), conn.session, params={"region": region, "metric": metric})
 
-def get_history(region, metric, conn, category, segment, hour):
+# Fetch historical data based on selected filters
+
+def get_history(region, metric, category, segment, hour):
     if metric == "total_revenue":
         value_expr = "SUM(o.total_price)"
     elif metric == "total_orders":
@@ -54,76 +52,76 @@ def get_history(region, metric, conn, category, segment, hour):
            dm.is_promo_day
     FROM orders o
     JOIN daily_metrics dm ON DATE(o.timestamp) = dm.date AND o.region = dm.region
-    WHERE o.region = %s
+    WHERE o.region = :region
     """
-    params = [region]
+    params = {"region": region}
 
     if category != "All":
-        query += " AND o.category = %s"
-        params.append(category)
+        query += " AND o.category = :category"
+        params["category"] = category
 
     if segment != "All":
-        query += " AND o.user_segment = %s"
-        params.append(segment)
+        query += " AND o.user_segment = :segment"
+        params["segment"] = segment
 
     if hour != "All":
-        query += " AND EXTRACT(HOUR FROM o.timestamp) = %s"
-        params.append(int(hour))
+        query += " AND EXTRACT(HOUR FROM o.timestamp) = :hour"
+        params["hour"] = int(hour)
 
     query += " GROUP BY DATE(o.timestamp), dm.is_promo_day ORDER BY DATE(o.timestamp)"
-    df = pd.read_sql(query, conn, params=params)
+    df = pd.read_sql(text(query), conn.session, params=params)
     df["type"] = "Historical"
     return df
 
-# Sidebar Controls
+# Sidebar filter controls
 st.sidebar.header("📊 Filters")
 region = st.sidebar.selectbox("Select Region", ['Northeast', 'Midwest', 'South', 'West'])
 metric = st.sidebar.radio("Metric", ['total_orders', 'total_revenue', 'avg_order_value'])
 
-cursor = conn.cursor()
-cursor.execute("SELECT DISTINCT category FROM orders")
-categories = [row[0] for row in cursor.fetchall()]
-cursor.execute("SELECT DISTINCT user_segment FROM orders")
-segments = [row[0] for row in cursor.fetchall()]
-cursor.execute("SELECT DISTINCT hour FROM orders ORDER BY hour")
-hours = [row[0] for row in cursor.fetchall()]
+categories = conn.query("SELECT DISTINCT category FROM orders", ttl=0)["category"].tolist()
+segments = conn.query("SELECT DISTINCT user_segment FROM orders", ttl=0)["user_segment"].tolist()
+hours = conn.query("SELECT DISTINCT hour FROM orders ORDER BY hour", ttl=0)["hour"].tolist()
 
 selected_category = st.sidebar.selectbox("Product Category", ["All"] + categories)
 selected_segment = st.sidebar.selectbox("User Segment", ["All"] + segments)
 selected_hour = st.sidebar.selectbox("Hour of Day", ["All"] + [str(h) for h in hours])
 
-# Data Retrieval and Visualization
-df_forecast = get_forecast(region, metric, conn)
-df_history = get_history(region, metric, conn, selected_category, selected_segment, selected_hour)
+# Pull and combine forecast and history data
+df_forecast = get_forecast(region, metric)
+df_history = get_history(region, metric, selected_category, selected_segment, selected_hour)
 df_combined = pd.concat([df_forecast, df_history])
 
+# Extract promo dates for visual overlay
 promo_dates = df_history[df_history['is_promo_day'] == True]['forecast_date'].tolist()
 
-# Choose y-axis formatting
+# Format y-axis based on selected metric
 if metric in ["total_revenue", "avg_order_value"]:
     y_axis = alt.Y('forecast_value:Q', title=metric.replace("_", " ").title(), axis=alt.Axis(format='$,.2f'))
 else:
     y_axis = alt.Y('forecast_value:Q', title=metric.replace("_", " ").title())
 
+# Build main forecast chart
 chart = alt.Chart(df_combined).mark_line().encode(
     x='forecast_date:T',
     y=y_axis,
     color='type:N'
 )
 
+# Add vertical line for promo days
 promo_overlay = alt.Chart(pd.DataFrame({'promo_date': promo_dates})).mark_rule(
     color='orange',
     strokeDash=[5, 5]
 ).encode(x='promo_date:T')
 
+# Display title and chart
 st.title("📈 Forecast Dashboard")
 st.altair_chart(chart + promo_overlay, use_container_width=True)
 
-# Forecast Table
+# Show forecast table
 st.subheader("📋 Forecast Data Table")
 st.dataframe(df_forecast, use_container_width=True)
 
-# Download CSV Button
+# Download CSV of combined data
 st.download_button(
     label="Download CSV",
     data=df_combined.to_csv(index=False),

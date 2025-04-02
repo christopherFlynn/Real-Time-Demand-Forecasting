@@ -2,10 +2,12 @@ import os
 import pandas as pd
 import altair as alt
 import streamlit as st
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
-# Connect to Supabase using Streamlit's native SQL connection
-conn = st.connection("supabase_db", type="sql")
+# Manually build SQLAlchemy engine from st.secrets
+secrets = st.secrets["connections"]["postgresql"]
+url = f"postgresql://{secrets['username']}:{secrets['password']}@{secrets['host']}:{secrets['port']}/{secrets['database']}"
+engine = create_engine(url)
 
 # Fetch forecasted metrics for a selected region and metric
 # If AOV is selected, derive it from forecasted revenue and orders
@@ -17,7 +19,7 @@ def get_forecast(region, metric):
         FROM forecast_metrics
         WHERE region = :region AND metric IN ('total_orders', 'total_revenue')
         """
-        df_raw = pd.read_sql(text(query), conn.session, params={"region": region})
+        df_raw = pd.read_sql(text(query), engine, params={"region": region})
         df_pivot = df_raw.pivot(index="forecast_date", columns="metric", values="forecast_value")
         df_pivot = df_pivot.dropna()
         df_pivot["forecast_value"] = df_pivot["total_revenue"] / df_pivot["total_orders"]
@@ -31,7 +33,7 @@ def get_forecast(region, metric):
         WHERE region = :region AND metric = :metric
         ORDER BY forecast_date
         """
-        return pd.read_sql(text(query), conn.session, params={"region": region, "metric": metric})
+        return pd.read_sql(text(query), engine, params={"region": region, "metric": metric})
 
 # Fetch historical data based on selected filters
 
@@ -69,7 +71,7 @@ def get_history(region, metric, category, segment, hour):
         params["hour"] = int(hour)
 
     query += " GROUP BY DATE(o.timestamp), dm.is_promo_day ORDER BY DATE(o.timestamp)"
-    df = pd.read_sql(text(query), conn.session, params=params)
+    df = pd.read_sql(text(query), engine, params=params)
     df["type"] = "Historical"
     return df
 
@@ -78,9 +80,10 @@ st.sidebar.header("📊 Filters")
 region = st.sidebar.selectbox("Select Region", ['Northeast', 'Midwest', 'South', 'West'])
 metric = st.sidebar.radio("Metric", ['total_orders', 'total_revenue', 'avg_order_value'])
 
-categories = conn.query("SELECT DISTINCT category FROM orders", ttl=0)["category"].tolist()
-segments = conn.query("SELECT DISTINCT user_segment FROM orders", ttl=0)["user_segment"].tolist()
-hours = conn.query("SELECT DISTINCT hour FROM orders ORDER BY hour", ttl=0)["hour"].tolist()
+with engine.connect() as con:
+    categories = pd.read_sql("SELECT DISTINCT category FROM orders", con)["category"].tolist()
+    segments = pd.read_sql("SELECT DISTINCT user_segment FROM orders", con)["user_segment"].tolist()
+    hours = pd.read_sql("SELECT DISTINCT hour FROM orders ORDER BY hour", con)["hour"].tolist()
 
 selected_category = st.sidebar.selectbox("Product Category", ["All"] + categories)
 selected_segment = st.sidebar.selectbox("User Segment", ["All"] + segments)

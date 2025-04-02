@@ -1,7 +1,9 @@
+altair==5.5.0
 confluent_kafka==2.9.0
 Faker==37.1.0
 pandas==2.2.3
 prophet==1.1.6
-psycopg2-binary
+psycopg2-binary==2.9.10
 python-dotenv==1.1.0
 streamlit==1.43.2
+sqlalchemy==2.0.40

@@ -2,23 +2,22 @@
 import streamlit as st
 import pandas as pd
 import psycopg2
-from dotenv import load_dotenv
 import os
 from datetime import date
 import altair as alt
 
-load_dotenv()
+import streamlit as st
 
 st.set_page_config(page_title="Demand Forecasting Dashboard", layout="wide")
 st.title("📈 Real-Time Demand Forecasting")
 
 # DB connection
 conn = psycopg2.connect(
-    dbname=os.getenv("DB_NAME"),
-    user=os.getenv("DB_USER"),
-    password=os.getenv("DB_PASSWORD"),
-    host=os.getenv("DB_HOST"),
-    port=os.getenv("DB_PORT")
+    dbname=st.secrets("DB_NAME"),
+    user=st.secrets("DB_USER"),
+    password=st.secrets("DB_PASSWORD"),
+    host=st.secrets("DB_HOST"),
+    port=st.secrets("DB_PORT")
 )
 
 # UI Controls

@@ -20,5 +20,7 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Firebase credentials (if using Firebase Admin SDK)
-.streamlit/secrets.toml
+# Streamlit credentials
+.streamlit/
+
+run_pipeline.sh
